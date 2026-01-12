@@ -1,7 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
 import json
-import pandas as pd
 from datetime import datetime
 import time
 import os
@@ -48,13 +47,35 @@ def fiyat_cek(url):
         response.raise_for_status() # HTTP hatalarını yakala
         
         soup = BeautifulSoup(response.content, "html.parser")
-        fiyat_etiketi = soup.find("span", class_="urun_fiyat")
         
-        if fiyat_etiketi and 'data-sort' in fiyat_etiketi.attrs:
-            # data-sort değerini alıp TL'ye çeviriyoruz (Örn: 3500000 -> 35000.00 TL)
-            fiyat_raw = int(fiyat_etiketi['data-sort'])
+        # Tüm fiyat etiketlerini bul
+        fiyat_etiketleri = soup.find_all("span", class_="urun_fiyat")
+        
+        for etiket in fiyat_etiketleri:
+            if 'data-sort' not in etiket.attrs:
+                continue
+                
+            # Daha spesifik parent kontrolü (Genel kapsayıcıyı seçmemek için)
+            container = etiket.find_parent("a") # Genellikle link içindedir
+            if not container:
+                container = etiket.parent
+            
+            # İçerik kontrolü
+            full_text = container.get_text().lower() if container else ""
+            
+            # Yasaklı kelimeler (Yenilenmiş, outlet vb. ürünleri atla)
+            yasakli_kelimeler = ["yenilenmiş", "outlet", "teşhir", "ikinci el", "hasarlı", "kullanılmış"]
+            if any(yasak in full_text for yasak in yasakli_kelimeler):
+                # print(f"DEBUG: Atlandı (Yasaklı): {full_text[:60]}")
+                continue
+            
+            # print(f"DEBUG: Kabul edildi: {full_text[:60]}")
+
+            # Temiz fiyat bulundu
+            fiyat_raw = int(etiket['data-sort'])
             return float(fiyat_raw) / 100
             
+        print(f"⚠️ Uygun (sıfır) ürün fiyatı bulunamadı: {url}")
         return None
     except Exception as e:
         print(f"❌ Hata (URL: {url}): {e}")
@@ -69,7 +90,6 @@ def ana_program():
     with open(dosya_adi, 'r', encoding='utf-8') as f:
         urunler = json.load(f)
     
-    sonuclar = []
     telegram_mesaji = ""
     simdi = datetime.now()
     tarih_str = simdi.strftime("%d.%m.%Y %H:%M")
@@ -91,14 +111,6 @@ def ana_program():
         fiyat = fiyat_cek(url)
         
         if fiyat is not None:
-            # Excel için veri hazırla
-            sonuclar.append({
-                "Tarih": simdi.strftime("%Y-%m-%d %H:%M:%S"),
-                "Ürün Adı": urun_adi,
-                "Fiyat (TL)": fiyat,
-                "Link": url
-            })
-            
             # Telegram mesajı için formatla
             telegram_mesaji += f"🔹 *{urun_adi}*\n💰 Fiyat: {fiyat:,.2f} TL\n🔗 [Ürüne Git]({url})\n\n"
         else:
@@ -107,35 +119,11 @@ def ana_program():
         # Her istek arası bekleme
         time.sleep(2)
 
-    # Verileri Excel'e kaydet
-    if sonuclar:
-        df = pd.DataFrame(sonuclar)
-        excel_dosyasi = "fiyat_takip.xlsx"
-        
-        try:
-            if os.path.exists(excel_dosyasi):
-                with pd.ExcelWriter(excel_dosyasi, mode='a', if_sheet_exists='overlay', engine='openpyxl') as writer:
-                    # Mevcut verinin sonuna eklemek için (header olmadan)
-                     # Ancak en garantisi okuyup concat yapmaktır, özellikle sütunlar değişirse.
-                     # Prompt "Mevcut varsa üzerine yazma, sonuna ekle" dedi.
-                     # En basit ve güvenli yöntem: Oku -> Birleştir -> Yaz
-                    mevcut_df = pd.read_excel(excel_dosyasi)
-                    guncel_df = pd.concat([mevcut_df, df], ignore_index=True)
-                    guncel_df.to_excel(excel_dosyasi, index=False)
-            else:
-                df.to_excel(excel_dosyasi, index=False)
-                
-            print(f"✅ Veriler '{excel_dosyasi}' dosyasına başarıyla kaydedildi.")
-            
-            # Telegram mesajını gönder
-            if telegram_mesaji:
-                send_telegram_message(telegram_mesaji)
-                
-        except Exception as e:
-             print(f"❌ Excel kayıt hatası: {e}")
-
+    # Telegram mesajını gönder
+    if telegram_mesaji:
+        send_telegram_message(telegram_mesaji)
     else:
-        print("❌ Hiç veri çekilemedi, Excel güncellenmedi.")
+        print("❌ Hiç veri çekilemedi veya mesaj oluşturulamadı.")
 
 if __name__ == "__main__":
     ana_program()
