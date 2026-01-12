@@ -1,0 +1,12 @@
+[
+    {
+        "urun_id": 1,
+        "urun_adi": "Apple Macbook Air 13.6 M2 16/256",
+        "urun_url":"https://www.epey.com/laptop/apple-macbook-air-13-6-m2-mc7x4tu-a.html"
+    },
+    {
+        "urun_id": 2,
+        "urun_adi": "Apple Macbook Air 13.6 M4 16/256",
+        "urun_url":"https://www.epey.com/laptop/apple-macbook-air-13-6-m4-mc6t4tu-a.html"
+    }
+]
